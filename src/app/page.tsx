@@ -1,103 +1,223 @@
-import Image from "next/image";
+"use client"
+import React, { useMemo, useRef, useState } from "react";
+import { Button, buttonVariants } from "@/components/ui/button"
 
-export default function Home() {
+
+export default function ItemValuation({ apiUrl = "/api/openai" }: { apiUrl?: string }) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [serverText, setServerText] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number | null>(null);
+
+  const galleryInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const previews = useMemo(
+    () => files.map((f) => ({ name: f.name, url: URL.createObjectURL(f) })),
+    [files]
+  );
+
+  function addFiles(list: FileList | null) {
+    if (!list?.length) return;
+    const incoming = Array.from(list).filter((f) => f.type.startsWith("image/"));
+    setFiles((prev) => {
+      const key = (f: File) => `${f.name}_${f.lastModified}_${f.size}`;
+      const existing = new Set(prev.map(key));
+      const unique = incoming.filter((f) => !existing.has(key(f)));
+      return [...prev, ...unique];
+    });
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    addFiles(e.dataTransfer?.files ?? null);
+  }
+
+  async function handleSubmit() {
+    if (!files.length) {
+      setError("Dodaj przynajmniej jedno zdjęcie.");
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setServerText("");
+    setProgress(0);
+
+    try {
+      const form = new FormData();
+      files.forEach((f, i) => form.append("images", f, f.name || `image_${i + 1}.jpg`));
+
+      const resText = await uploadWithProgress(apiUrl, form, (p) => setProgress(p));
+      setServerText(resText);
+    } catch (e) {
+      if (e instanceof Error) {
+        setError(e?.message ?? "Sending error.");
+      } else {
+        setError("Unknown error.");
+      }
+    } finally {
+      setIsLoading(false);
+      setProgress(null);
+    }
+  }
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <div className="mx-auto max-w-3xl p-6">
+        <header className="mb-6 flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Wyceń przedmiot</h1>
+          <span className="text-xs text-gray-500">demo React</span>
+        </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+        <div
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={onDrop}
+          className="mb-4 rounded-2xl border-2 border-dashed border-gray-300 bg-white p-6 text-center"
+        >
+          <p className="mb-3 text-sm text-gray-600">
+            Możesz dodać wiele zdjęć, przeciągając je tutaj lub używając przycisków poniżej.
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            <Button
+              onClick={() => galleryInputRef.current?.click()}
+              > Wybierz z galerii</Button>
+            <Button
+              variant="green"
+              onClick={() => cameraInputRef.current?.click()}>
+                Zrób zdjęcie</Button>
+            <Button
+              variant="destructive"
+              onClick={() => setFiles([])}>
+                Wyczyść</Button>
+          </div>
+
+
+          <input
+            ref={galleryInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => addFiles(e.target.files)}
+          />
+
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            className="hidden"
+            onChange={(e) => addFiles(e.target.files)}
+          />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        <PasteCatcher onPasteFiles={(fl) => addFiles(fl)} />
+
+        {!!files.length && (
+          <ul className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {previews.map((p, idx) => (
+              <li key={p.url} className="group relative overflow-hidden rounded-2xl bg-white shadow">
+                <img src={p.url} alt={p.name} className="h-40 w-full object-cover" />
+                <Button
+                onClick={() => setFiles((curr) => curr.filter((_, i) => i !== idx))}
+                >Usuń</Button>
+                <button
+                  type="button"
+                  
+                  className="absolute right-2 top-2 hidden rounded-full bg-black/60 px-2 py-1 text-xs text-white group-hover:block"
+                >
+                  Usuń
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mb-2 flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={handleSubmit}
+            >{isLoading ? "Wysyłanie…" : "Wyślij"}</Button>
+        
+          {typeof progress === "number" && (
+            <div className="text-sm text-gray-600">Przesłano: {progress}%</div>
+          )}
+        </div>
+
+        {error && (
+          <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+            {error}
+          </div>
+        )}
+
+        <section className="rounded-2xl border bg-white p-4">
+          <h2 className="mb-2 text-sm font-medium text-gray-700">Odpowiedź serwera</h2>
+          <pre className="whitespace-pre-wrap break-words text-sm text-gray-900">
+            {serverText || "—"}
+          </pre>
+        </section>
+
+        <footer className="mt-8 text-center text-xs text-gray-500">v0.0.1 – React demo</footer>
+      </div>
+    </div>
+  );
+}
+
+
+async function uploadWithProgress(url: string, formData: FormData, onProgress?: (pct: number) => void) {
+  const resText = await new Promise<string>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+
+    xhr.upload.onprogress = (evt) => {
+      if (!evt.lengthComputable) return;
+      const pct = Math.round((evt.loaded / evt.total) * 100);
+      onProgress?.(pct);
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(xhr.responseText);
+      } else {
+        reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText || "Błąd"}`));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error("Błąd sieci podczas wysyłania."));
+    xhr.send(formData);
+  });
+
+  return resText;
+}
+
+function PasteCatcher({ onPasteFiles }: { onPasteFiles: (files: FileList) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      className="mb-4 rounded-2xl border border-dashed border-gray-300 bg-white p-3 text-center text-xs text-gray-500 outline-none"
+      onPaste={(e) => {
+        const items = e.clipboardData?.items;
+        if (!items) return;
+        const files = Array.from(items)
+          .filter((it) => it.kind === "file")
+          .map((it) => it.getAsFile())
+          .filter(Boolean) as File[];
+        if (files.length) {
+          const list = {
+            length: files.length,
+            item: (i: number) => files[i],
+            ...files,
+          } as unknown as FileList;
+          onPasteFiles(list);
+        }
+      }}
+    >
+      Możesz też wkleić obraz (Ctrl/Cmd+V)
     </div>
   );
 }
